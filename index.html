@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tabilog</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&display=swap">
+<style>
+  :root { color-scheme: light dark; --line:#8884; --accent:#e29aa4; }
+  body { margin:0; font:15px/1.7 system-ui,sans-serif; display:flex; height:100vh;
+         print-color-adjust:exact; -webkit-print-color-adjust:exact; }
+  #side { width:400px; overflow-y:auto; padding:14px; box-sizing:border-box; border-right:1px solid var(--line); }
+  #map { flex:1; cursor:crosshair; }
+  h1 { font-size:20px; margin:8px 0 0; outline:none; }
+  h1:empty::before { content:'旅のタイトル'; opacity:.35; }
+  #cover img { width:100%; height:140px; object-fit:cover; border-radius:6px; display:block; }
+  #cover img:not([src]) { display:none; }
+  #summary { font-size:13px; opacity:.75; margin:6px 0 10px; }
+  .hint { font-size:12px; opacity:.55; margin:6px 0; }
+  #controls input[type=color] { width:28px; height:22px; padding:0; border:1px solid var(--line); vertical-align:middle; }
+  .day { font-weight:700; margin:20px 0 6px; padding-bottom:3px; border-bottom:1px solid var(--line); }
+  .day .d { font-weight:400; opacity:.6; font-size:13px; margin-left:8px; }
+  .spot { display:flex; gap:10px; margin:12px 0; scroll-margin-top:8px; }
+  .spot img { width:88px; height:88px; object-fit:cover; border-radius:6px; cursor:pointer; flex:none; }
+  .spot .body { flex:1; min-width:0; }
+  .spot time, .badge { display:none; }
+  .mark { font-size:12px; opacity:.5; margin:10px 0 4px; }
+  .mark time { display:block; }
+  .meta { font-size:12px; opacity:.7; display:flex; gap:6px; align-items:center; }
+  .meta .t { display:none; }
+  textarea { width:100%; box-sizing:border-box; min-height:46px; font:inherit; font-size:13px;
+             border:1px solid var(--line); border-radius:4px; background:transparent; padding:5px 7px;
+             resize:none; overflow:hidden; color:inherit; }
+  textarea:focus { outline:1px solid var(--accent); }
+  #lead { margin:10px 0; }
+  input[type=datetime-local] { font:inherit; font-size:12px; }
+  .del, .star { border:0; background:none; cursor:pointer; opacity:.45; font-size:14px; color:inherit; padding:0; }
+  .del:hover, .star:hover, .star.on { opacity:1; }
+  .star.on { color:var(--accent); }
+  .pin { border-radius:50%; width:22px; height:22px; color:#fff; text-align:center; line-height:22px;
+         font-size:12px; font-weight:700; box-shadow:0 1px 3px #0006; }
+  .photo { background:var(--accent); }
+  .manual { background:#7fb8d4; }
+  .warn { color:#c33; font-size:13px; }
+  #print { display:none; }
+
+  /* ============ しおりモード：A4実寸プレビュー ============ */
+  body.book { display:block; height:auto; overflow:auto; color-scheme:light;
+              background:#eef3f6; color:#4a4340; letter-spacing:.02em;
+              font-family:'Hiragino Maru Gothic ProN','Zen Maru Gothic','Hiragino Sans',sans-serif; }
+  /* 台紙：方眼。この上に白いシートを重ねる */
+  body.book #side {
+    width:210mm; max-width:none; margin:0 auto; overflow:visible; padding:0;
+    background-color:#fdfaf5; border:0; border-radius:0; box-sizing:border-box;
+    background-image:linear-gradient(#e9f0f5 1px, transparent 1px),
+                     linear-gradient(90deg, #e9f0f5 1px, transparent 1px);
+    background-size:22px 22px;
+  }
+  /* 1シート = 1ページ。表紙以外の中身はすべてこの中 */
+  body.book .sheet { background:#fff; border-radius:6mm; padding:13mm 12mm; margin:11mm;
+                     height:275mm; box-sizing:border-box; box-shadow:0 1px 8px #00000012;
+                     display:flex; flex-direction:column; overflow:hidden; }
+  body.book #controls, body.book .hint { display:none; }
+  body.book #print { display:block; margin:16px auto 40px; padding:10px 26px; font:inherit; cursor:pointer;
+                     background:var(--accent); color:#fff; border:0; border-radius:20px; }
+
+  /* 表紙：紙面いっぱい */
+  body.book #cover { position:relative; height:297mm; margin:0; overflow:hidden; background:#dfe8ee; }
+  body.book #cover img { position:absolute; inset:0; width:100%; height:100%; border-radius:0; }
+  body.book .ctext { position:absolute; inset:auto 0 0 0; padding:70px 36px 40px; text-align:center;
+                     background:linear-gradient(transparent, #00000099 60%); color:#fff; }
+  body.book #cover h1 { font-size:32px; line-height:1.5; letter-spacing:.1em; font-weight:600;
+                        color:#fff; text-shadow:0 2px 14px #0007; }
+  body.book #summary { font-size:11px; letter-spacing:.24em; opacity:.9; margin:14px 0 0; }
+  body.book #summary::before, body.book #summary::after { content:'⸺'; opacity:.5; margin:0 10px; }
+
+  /* 道程ページ */
+  body.book #map { width:100%; height:150mm; margin:0 0 8mm; border-radius:4mm; flex:none;
+                   border:2px solid #fff; box-shadow:0 2px 10px #0000000f;
+                   cursor:default; filter:saturate(.75); }
+  body.book #lead { border:0; padding:0; font-family:inherit; font-size:14px;
+                                      line-height:2.1; background:transparent; }
+
+  /* ---- 1日1ページ ---- */
+  body.book .hero { position:relative; display:block; margin:0 0 6mm; flex:none; }
+  body.book .hero img { width:100%; height:72mm; border-radius:5mm; cursor:default;
+                        box-shadow:0 3px 14px #00000014; }
+  /* 日付は写真に重ねる。暗幕を敷いて写真の色と混ざらないようにする */
+  body.book .hero .day { position:absolute; inset:0 0 auto 0; margin:0; padding:7mm 8mm 14mm;
+                         border:0; border-radius:5mm 5mm 0 0; color:#fff;
+                         background:linear-gradient(#000000a6, #00000040 55%, transparent);
+                         display:flex; align-items:baseline; gap:16px; }
+  body.book .day .n { font-family:Caveat,cursive; font-size:40px; line-height:1; color:#fff;
+                      white-space:nowrap; transform:rotate(-4deg); text-shadow:0 2px 8px #0006; }
+  body.book .day .d { font-size:14px; letter-spacing:.2em; opacity:.85; margin:0; }
+  body.book .day--plain { color:inherit; background:none; position:static; padding:0 0 6mm; }
+  body.book .day--plain .n { color:var(--accent); text-shadow:none; }
+  body.book .day--plain .d { color:inherit; opacity:.6; }
+  /* 日時も写真の上へ。下端に薄い暗幕を敷いて読めるようにする */
+  body.book .hero::after { content:''; position:absolute; inset:0 0 auto 0; height:72mm; border-radius:5mm;
+                           background:linear-gradient(transparent 72%, #00000066); pointer-events:none; z-index:1; }
+  body.book .hero .meta { position:absolute; right:7mm; top:65mm; bottom:auto; margin:0; z-index:2;
+                          color:#fff; opacity:.9; text-shadow:0 1px 6px #0009; }
+  body.book .hero .body { margin-top:3mm; }
+  body.book .hero textarea { font-size:14px; max-height:5em; overflow:hidden; }
+
+  /* タイムライン：9:00-21:00 の枠を等分。位置は時刻から算出する */
+  body.book .tl { position:relative; flex:1; padding-left:26mm; margin:0; border:0; min-height:0; }
+  body.book .tl::before { content:''; position:absolute; left:21mm; top:0; bottom:0;
+                          border-left:2px dotted #d9e3ea; }
+  body.book .mark { position:absolute; left:0; right:0; height:0; margin:0; opacity:1; }
+  body.book .mark time { display:block; position:absolute; left:0; top:-2.2mm; width:17mm;
+                         text-align:right; font-size:13px; letter-spacing:.06em; color:#8d837d; }
+  body.book .mark::before { content:''; position:absolute; left:19.2mm; top:-1.4mm; width:2.6mm; height:2.6mm;
+                            border-radius:50%; background:#fff; border:1.5px solid #c9d5dd; }
+  body.book .mark::after { content:''; position:absolute; left:26mm; right:0; top:0; border-top:1px dotted #eef2f5; }
+  body.book .tl .spot { position:absolute; left:26mm; right:0; margin:0; gap:4mm; align-items:flex-start; }
+  body.book .tl .spot::before { content:''; position:absolute; left:-5.6mm; top:2mm; width:2.4mm; height:2.4mm;
+                                border-radius:50%; background:var(--accent); box-shadow:0 0 0 1.2mm #fff; }
+  body.book .tl .spot img { width:44mm; height:31mm; border-radius:4mm; order:3; cursor:default;
+                            box-shadow:0 2px 10px #00000014; }
+  body.book .tl .spot .meta { display:none; }   /* 時刻は目盛りで示すので出さない */
+  body.book .tl .spot textarea { font-size:13px; line-height:1.9; max-height:5.7em; overflow:hidden; }
+  body.book .tl.dense .spot img { width:34mm; height:24mm; }
+  body.book .tl.dense .spot textarea { font-size:12px; max-height:3.8em; }
+  body.book .badge { display:inline-block; float:left; width:18px; height:18px; line-height:18px; border-radius:50%;
+                     background:var(--accent); color:#fff; font-size:11px; text-align:center;
+                     margin-right:7px; vertical-align:2px; }
+  body.book .meta { font-size:11px; letter-spacing:.14em; opacity:.45; }
+  body.book .meta .t { display:inline; }
+  body.book .meta input, body.book .meta .del, body.book .meta .star, body.book .meta .no { display:none; }
+  body.book .spot textarea { border:0; padding:0; font-family:inherit; background:transparent; }
+  body.book textarea::placeholder { color:#e29aa480; }
+
+  @media print {
+    @page { margin:0; size:A4 portrait; }
+    body.book { background:#fdfaf5; }
+    body.book #side { width:auto; }
+    #controls, #print, .hint, .leaflet-control-zoom, .leaflet-control-attribution { display:none !important; }
+    textarea:placeholder-shown { display:none !important; }   /* 空欄は印刷しない */
+    body.book .sheet { box-shadow:none; }
+    #cover, .sheet { break-after:page; }
+  }
+</style>
+</head>
+<body>
+<div id="side">
+  <div id="controls">
+    <input type="file" id="files" accept="image/*" multiple>
+    <button id="bookBtn">しおりにする</button>
+    <label>色 <input type="color" id="accent" value="#e29aa4"></label>
+    <div class="hint">地図クリックでピン追加 / 写真の ☆ で表紙を選択</div>
+  </div>
+
+  <section id="cover">
+    <img id="coverImg">
+    <div class="ctext">
+      <h1 id="title" contenteditable spellcheck="false"></h1>
+      <div id="summary"></div>
+    </div>
+  </section>
+
+  <section id="mapsec" class="sheet">
+    <textarea id="lead" placeholder="この旅をふりかえって"></textarea>
+  </section>
+
+  <div id="list"></div>
+
+  <button id="print">PDFにする</button>
+</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js"></script>
+<script>
+const DAY_START = 9, DAY_END = 21;      // タイムラインの既定の枠（時）
+
+const map = L.map('map').setView([35.68, 139.77], 5);
+L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png', {
+  maxZoom: 18, attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>'
+}).addTo(map);
+const layer = L.layerGroup().addTo(map);
+const $ = id => document.getElementById(id);
+
+let photos = [];                                              // 写真由来（再読込で消える）
+let pins = JSON.parse(localStorage.getItem('pins') || '[]');  // 手動ピン（永続）
+let skipped = 0, bounds = null;
+let coverName = localStorage.getItem('cover') || '';
+const savePins = () => localStorage.setItem('pins', JSON.stringify(pins));
+
+const memoKey = s => 'memo:' + s.name + '|' + s.time.getTime();
+const dayKey = d => d.toLocaleDateString('ja-JP', { year:'numeric', month:'long', day:'numeric', weekday:'short' });
+const clock = d => d.toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' });
+const fmt = d => d.toLocaleString('ja-JP', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
+const headline = d => `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()} `
+  + d.toLocaleDateString('en-US', { weekday:'short' }).toUpperCase();
+// datetime-local はローカル時刻の文字列しか受け付けないのでオフセットを引く
+const dtLocal = d => new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 16);
+const hours = d => d.getHours() + d.getMinutes() / 60;
+const grow = ta => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+
+function bind(ta, key, onSave) {
+  if (!onSave) ta.value = localStorage.getItem(key) || '';
+  ta.oninput = () => { onSave ? onSave(ta.value) : localStorage.setItem(key, ta.value); grow(ta); };
+  grow(ta);
+}
+
+// 2点間の距離(km)
+function haversine(a, b) {
+  const R = 6371, r = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * r, dLng = (b.lng - a.lng) * r;
+  const h = Math.sin(dLat/2)**2 + Math.cos(a.lat*r) * Math.cos(b.lat*r) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+async function parse(file) {
+  const x = await exifr.parse(file, true).catch(() => null);   // 全タグ読む。機種ごとの差異を吸収
+  if (!x || !Number.isFinite(x.latitude)) {   // 位置情報オフの端末は GPS タグを NaN で埋めてくる
+    console.warn('skip:', file.name, x ? '位置情報なし' : 'EXIF読めず', x);
+    return null;
+  }
+  // 撮影日時のタグは機種でばらつくので順に探し、最後はファイル更新日時
+  const time = x.DateTimeOriginal || x.CreateDate || x.ModifyDate || new Date(file.lastModified);
+  return { name: file.name, url: URL.createObjectURL(file), time: new Date(time), lat: x.latitude, lng: x.longitude };
+}
+
+// スポット1件のカード。hero は主役写真、それ以外はタイムラインの1点
+function card(s, i, hero) {
+  const el = document.createElement('div');
+  el.className = 'spot' + (hero ? ' hero' : '');
+  el.innerHTML = `<time>${clock(s.time)}</time>`
+    + (s.url ? `<img src="${s.url}">` : '')
+    + `<div class="body">
+         <div class="meta">
+           <span class="no">${i + 1}.</span>
+           ${s.url ? `<button class="star ${s.name === coverName ? 'on' : ''}" title="表紙にする">${s.name === coverName ? '★' : '☆'}</button>` : ''}
+           ${s.pin ? `<input type="datetime-local" value="${dtLocal(s.time)}"><button class="del" title="削除">✕</button>` : ''}
+           <span class="t">${fmt(s.time)}</span>
+         </div>
+         <span class="badge">${i + 1}</span><textarea placeholder="ここにメモ"></textarea>
+       </div>`;
+
+  const ta = el.querySelector('textarea');
+  if (s.pin) {
+    ta.value = s.pin.memo || '';
+    bind(ta, null, v => { s.pin.memo = v; savePins(); });
+    el.querySelector('input').onchange = e => { s.pin.time = new Date(e.target.value).toISOString(); savePins(); draw(); };
+    el.querySelector('.del').onclick = () => { pins.splice(pins.indexOf(s.pin), 1); savePins(); draw(); };
+  } else {
+    bind(ta, memoKey(s));
+  }
+  if (s.url) el.querySelector('.star').onclick = () => {
+    coverName = s.name === coverName ? '' : s.name;
+    localStorage.setItem('cover', coverName);
+    draw();
+  };
+
+  const marker = L.marker(s, {
+    icon: L.divIcon({ className: '', html: `<div class="pin ${s.pin ? 'manual' : 'photo'}">${i + 1}</div>`, iconSize: [22, 22] })
+  }).addTo(layer).bindPopup(
+    `<b>${i + 1}. ${fmt(s.time)}</b>` + (s.url ? `<br><img src="${s.url}" width="160">` : '')
+  );
+  if (s.url) el.querySelector('img').onclick = () => { map.setView(s, 14); marker.openPopup(); };
+  marker.on('click', () => el.scrollIntoView({ behavior: 'smooth' }));
+  return el;
+}
+
+// タイムラインの枠。既定は9-21時で、それを外れる写真があれば枠を広げる
+function frame(list) {
+  const hs = list.map(s => hours(s.time));
+  const from = Math.floor(Math.min(DAY_START, ...hs));
+  const to = Math.ceil(Math.max(DAY_END, ...hs));
+  const step = Math.ceil((to - from) / 6);    // 目盛りは6本前後に収める
+  return { from, to, step };
+}
+
+function draw() {
+  const spots = [...photos, ...pins.map(p => ({ ...p, time: new Date(p.time), pin: p }))]
+    .sort((a, b) => a.time - b.time);
+
+  layer.clearLayers();
+  const list = $('list');
+  list.innerHTML = '';
+
+  const cover = photos.find(p => p.name === coverName) || photos[0];
+  cover ? $('coverImg').src = cover.url : $('coverImg').removeAttribute('src');
+
+  if (!spots.length) {
+    $('summary').innerHTML = skipped
+      ? `<span class="warn">位置情報のある写真がありません（${skipped}枚スキップ / 詳細はconsole）</span>` : '';
+    return;
+  }
+
+  const dist = spots.slice(1).reduce((s, p, i) => s + haversine(spots[i], p), 0);
+  const days = [...new Set(spots.map(s => dayKey(s.time)))];
+  $('summary').textContent = `${days.length}DAYS　${spots.length}SPOTS　${dist.toFixed(0)}km`;
+
+  L.polyline(spots, { color: getComputedStyle(document.body).getPropertyValue('--accent').trim(),
+                      weight: 3, opacity: .85, dashArray: '1 7', lineCap: 'round' }).addTo(layer);
+  bounds = L.latLngBounds(spots).pad(.2);
+  if (!map._fitted) { map.fitBounds(bounds); map._fitted = true; }
+
+  days.forEach((d, di) => {
+    const mine = spots.filter(s => dayKey(s.time) === d);
+    const sec = document.createElement('section');
+    sec.className = 'dayp sheet';
+
+    const dayHtml = `<div class="day"><span class="n">Day ${di + 1}</span>`
+      + `<span class="d">${headline(mine[0].time)}</span></div>`;
+
+    // その日の最初の写真を主役に。日付はその写真に重ねる
+    const hero = mine.find(s => s.url);
+    if (hero) {
+      const h = card(hero, spots.indexOf(hero), true);
+      h.insertAdjacentHTML('afterbegin', dayHtml);
+      sec.appendChild(h);
+    } else {
+      sec.insertAdjacentHTML('beforeend', dayHtml.replace('class="day"', 'class="day day--plain"'));
+    }
+
+    const rest = mine.filter(s => s !== hero);
+    const tl = document.createElement('div');
+    tl.className = 'tl';
+    const f = frame(rest.length ? rest : mine);
+    for (let h = f.from; h <= f.to; h += f.step) {
+      tl.insertAdjacentHTML('beforeend',
+        `<div class="mark" data-pos="${(h - f.from) / (f.to - f.from)}"><time>${String(h).padStart(2, '0')}:00</time></div>`);
+    }
+    rest.forEach(s => {
+      const el = card(s, spots.indexOf(s), false);
+      el.dataset.pos = (hours(s.time) - f.from) / (f.to - f.from);
+      tl.appendChild(el);
+    });
+    sec.appendChild(tl);
+    list.appendChild(sec);
+  });
+
+  if (document.body.classList.contains('book')) requestAnimationFrame(layoutTimelines);
+}
+
+// 時刻から縦位置を決める。近すぎるものは下にずらし、枠に入らなければ縮小モードで再計算
+// ponytail: 単純な押し下げ。写真が1日15枚を超えると詰まりきらないので、そのときは日を分ける
+function layoutTimelines() {
+  document.querySelectorAll('.tl').forEach(tl => {
+    const place = () => {
+      const H = tl.clientHeight;
+      tl.querySelectorAll('.mark').forEach(m => m.style.top = (+m.dataset.pos * H) + 'px');
+      let bottom = 0;
+      tl.querySelectorAll('.spot').forEach(el => {
+        const top = Math.max(+el.dataset.pos * H, bottom);
+        el.style.top = top + 'px';
+        bottom = top + el.offsetHeight + 4;
+      });
+      return bottom <= H;
+    };
+    tl.classList.remove('dense');
+    if (!place()) { tl.classList.add('dense'); place(); }
+  });
+}
+
+// 地図クリックで手動ピン。時刻は直前のスポットに合わせておいて、あとから直せる
+map.on('click', e => {
+  if (document.body.classList.contains('book')) return;
+  const last = [...photos, ...pins].map(s => new Date(s.time)).sort((a, b) => b - a)[0];
+  pins.push({ lat: e.latlng.lat, lng: e.latlng.lng, time: (last || new Date()).toISOString(), memo: '' });
+  savePins();
+  draw();
+});
+
+$('files').onchange = async e => {
+  const files = [...e.target.files];
+  const parsed = await Promise.all(files.map(parse));
+  photos = parsed.filter(Boolean);
+  skipped = files.length - photos.length;
+  map._fitted = false;
+  draw();
+};
+
+// しおり切替。地図の要素は使い回して差し込む位置だけ変える
+$('bookBtn').onclick = () => {
+  const on = document.body.classList.toggle('book');
+  on ? $('mapsec').prepend($('map')) : document.body.appendChild($('map'));
+  $('bookBtn').textContent = on ? '編集に戻る' : 'しおりにする';
+  map.invalidateSize();
+  if (bounds) map.fitBounds(bounds);
+  map.dragging[on ? 'disable' : 'enable']();
+  document.querySelectorAll('textarea').forEach(grow);
+  if (on) requestAnimationFrame(layoutTimelines);
+};
+$('print').onclick = () => window.print();
+addEventListener('resize', () => document.body.classList.contains('book') && layoutTimelines());
+
+// テーマ色
+const setAccent = c => { document.documentElement.style.setProperty('--accent', c); $('accent').value = c; };
+setAccent(localStorage.getItem('accent') || '#e29aa4');
+$('accent').oninput = e => { setAccent(e.target.value); localStorage.setItem('accent', e.target.value); draw(); };
+
+$('title').textContent = localStorage.getItem('title') || '';
+$('title').oninput = e => localStorage.setItem('title', e.target.textContent);
+bind($('lead'), 'lead');
+
+draw();
+
+// ?selftest で距離計算・時刻変換・タイムライン枠を検証
+if (location.search.includes('selftest')) {
+  const d = haversine({ lat: 35.68, lng: 139.77 }, { lat: 34.69, lng: 135.50 });
+  console.assert(d > 390 && d < 410, '東京-大阪は約400kmのはず: ' + d);
+  const now = new Date();
+  console.assert(new Date(dtLocal(now)).getHours() === now.getHours(), 'datetime-local のタイムゾーン変換');
+  const f = frame([{ time: new Date('2026-09-23T07:30') }, { time: new Date('2026-09-23T18:00') }]);
+  console.assert(f.from === 7 && f.to === 21, '枠は9-21時を基本に、早朝へ広がる: ' + JSON.stringify(f));
+  console.log('selftest done');
+}
+</script>
+</body>
+</html>
